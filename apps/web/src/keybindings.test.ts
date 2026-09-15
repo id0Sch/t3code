@@ -1120,6 +1120,7 @@ describe("composer and pull request shortcuts", () => {
     ["c", "thread.copyReference"],
     ["k", "pullRequest.copyNumber"],
     ["Enter", "thread.steerQueuedMessage"],
+    ["u", "thread.markUnread"],
   ] as const;
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
