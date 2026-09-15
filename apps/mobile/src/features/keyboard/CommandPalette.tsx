@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Pressable,
+  Text as NativeText,
   TextInput,
   useWindowDimensions,
   View,
@@ -101,9 +102,9 @@ function PaletteRow(props: {
         ) : null}
       </View>
       {props.index < 9 ? (
-        <Text className="w-8 shrink-0 text-right text-sm tabular-nums text-foreground-muted">
+        <NativeText className="w-8 shrink-0 text-right text-sm tabular-nums text-foreground-muted">
           ⌘{props.index + 1}
-        </Text>
+        </NativeText>
       ) : null}
     </RowPressable>
   );
