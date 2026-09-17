@@ -402,7 +402,6 @@ import {
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   agentControlledBrowserCloseConfirmation,
-  handleMarkThreadUnreadShortcut,
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -1563,6 +1562,7 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [routeKind, routeThreadRef, routeThreadState]);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
   const settings = useEnvironmentSettings(environmentId);
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
@@ -6658,11 +6658,10 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       if (command === "thread.markUnread") {
-        handleMarkThreadUnreadShortcut(
-          event,
-          isServerThread ? activeThreadRef : null,
-          activeLatestTurn?.completedAt,
-        );
+        event.preventDefault();
+        event.stopPropagation();
+        if (!isServerThread || !activeThreadKey) return;
+        markThreadUnread(activeThreadKey, activeLatestTurn?.completedAt);
         return;
       }
 
@@ -6831,6 +6830,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadPinned,
     activeThreadSettled,
     activeLatestTurn?.completedAt,
+    markThreadUnread,
     canInterruptRunningThread,
     activeThreadKey,
     terminalUiState.terminalOpen,
