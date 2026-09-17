@@ -21,7 +21,7 @@ import {
   WORKTREE_SETUP_ACTIVITY_KIND,
   WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
   squashAtomCommandFailure,
@@ -60,6 +60,18 @@ import {
   resolveSelectableProviderInstanceEntry,
   type ProviderInstanceEntry,
 } from "../providerInstances";
+import { useUiStateStore } from "../uiStateStore";
+
+export function handleMarkThreadUnreadShortcut(
+  event: Pick<KeyboardEvent, "preventDefault" | "stopPropagation">,
+  threadRef: ScopedThreadRef | null,
+  completedAt: string | null | undefined,
+) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!threadRef) return;
+  useUiStateStore.getState().markThreadUnread(scopedThreadKey(threadRef), completedAt);
+}
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;

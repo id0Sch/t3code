@@ -16,10 +16,11 @@ import { Atom, AsyncResult } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 
+import { useUiStateStore } from "../uiStateStore";
 import type { Thread, ThreadShell, TurnDiffSummary } from "../types";
 import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   type RightPanelSurface,
   pullRequestSurface,
@@ -34,6 +35,7 @@ import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   agentControlledBrowserCloseConfirmation,
+  handleMarkThreadUnreadShortcut,
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
@@ -2617,5 +2619,45 @@ describe("worktree setup visibility", () => {
         isWorking: false,
       }),
     ).toEqual(base);
+  });
+});
+
+describe("mark unread shortcut", () => {
+  const threadRef = scopeThreadRef(EnvironmentId.make("env-1"), ThreadId.make("thread-1"));
+  const threadKey = scopedThreadKey(threadRef);
+  const otherKey = scopedThreadKey({ ...threadRef, environmentId: EnvironmentId.make("env-2") });
+  const completedAt = "2026-02-25T12:30:00.000Z";
+
+  beforeEach(() => {
+    useUiStateStore.setState({
+      threadLastVisitedAtById: { [threadKey]: completedAt, [otherKey]: completedAt },
+    });
+  });
+  afterEach(() => useUiStateStore.setState({ threadLastVisitedAtById: {} }));
+
+  it("marks only the scoped active thread unread and consumes the key event", () => {
+    const event = new Event("keydown", { cancelable: true, bubbles: true });
+    handleMarkThreadUnreadShortcut(event, threadRef, completedAt);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(event.cancelBubble).toBe(true);
+    expect(useUiStateStore.getState().threadLastVisitedAtById).toEqual({
+      [threadKey]: "2026-02-25T12:29:59.999Z",
+      [otherKey]: completedAt,
+    });
+
+    const unreadState = useUiStateStore.getState();
+    handleMarkThreadUnreadShortcut(event, threadRef, completedAt);
+    expect(useUiStateStore.getState()).toBe(unreadState);
+  });
+
+  it.each([
+    { ref: null, completion: completedAt },
+    { ref: threadRef, completion: undefined },
+    { ref: threadRef, completion: null },
+  ])("leaves visit state unchanged for $ref / $completion", ({ ref, completion }) => {
+    const state = useUiStateStore.getState();
+    handleMarkThreadUnreadShortcut(new Event("keydown"), ref, completion);
+    expect(useUiStateStore.getState()).toBe(state);
   });
 });
