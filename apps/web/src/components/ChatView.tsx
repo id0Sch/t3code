@@ -1562,6 +1562,7 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [routeKind, routeThreadRef, routeThreadState]);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
   const settings = useEnvironmentSettings(environmentId);
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
@@ -6656,6 +6657,15 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "thread.markUnread") {
+        const completedAt = activeLatestTurn?.completedAt;
+        if (!isServerThread || !activeThreadKey || !completedAt) return;
+        event.preventDefault();
+        event.stopPropagation();
+        markThreadUnread(activeThreadKey, completedAt);
+        return;
+      }
+
       if (command === "terminal.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -6820,6 +6830,8 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef,
     activeThreadPinned,
     activeThreadSettled,
+    activeLatestTurn?.completedAt,
+    markThreadUnread,
     canInterruptRunningThread,
     activeThreadKey,
     terminalUiState.terminalOpen,
