@@ -66,13 +66,16 @@ function ChecksGlyph({
 function LinkRow({
   line,
   threadRef,
-  showRepository,
+  repositoryLabel,
   onUnlink,
 }: {
   line: PullRequestListLine;
   threadRef: ScopedThreadRef;
-  /** Set when the thread links more than one repository, where a bare number is ambiguous. */
-  showRepository: boolean;
+  /**
+   * How much of the repository identity to show: none when the thread links a single
+   * repository, the host too when its links span hosts.
+   */
+  repositoryLabel: "none" | "repository" | "host";
   onUnlink: (link: ThreadPullRequestLink) => void;
 }) {
   const openPrLink = useOpenPrLink(threadRef);
@@ -163,8 +166,10 @@ function LinkRow({
                   labelClassName="max-w-28"
                 />
               ) : null}
-              {showRepository && snapshot !== null ? (
-                <span className="max-w-40 shrink-0 truncate">{link.repository}</span>
+              {repositoryLabel !== "none" && snapshot !== null ? (
+                <span className="max-w-40 shrink-0 truncate">
+                  {repositoryLabel === "host" ? `${link.host}/${link.repository}` : link.repository}
+                </span>
               ) : null}
               {snapshot !== null ? (
                 <PullRequestRowBranches head={snapshot.headBranch} base={snapshot.baseBranch} />
@@ -245,10 +250,14 @@ function EnabledThreadPullRequestsPanel({ threadRef }: { threadRef: ScopedThread
   const unlink = useAtomCommand(threadEnvironment.unlinkPullRequest, { reportFailure: true });
   const links = useMemo(() => visibleThreadPullRequests(thread?.pullRequests ?? []), [thread]);
   const lines = useMemo(() => pullRequestListLines(resolveThreadPullRequestChains(links)), [links]);
-  const showRepository = useMemo(
-    () => new Set(links.map((link) => `${link.host}/${link.repository}`.toLowerCase())).size > 1,
-    [links],
-  );
+  const repositoryLabel = useMemo(() => {
+    const repositories = new Set(
+      links.map((link) => `${link.host}/${link.repository}`.toLowerCase()),
+    );
+    if (repositories.size < 2) return "none";
+    const hosts = new Set(links.map((link) => link.host.toLowerCase()));
+    return hosts.size > 1 ? "host" : "repository";
+  }, [links]);
   const handleUnlink = useCallback(
     (link: ThreadPullRequestLink) => {
       void unlink({
@@ -302,7 +311,7 @@ function EnabledThreadPullRequestsPanel({ threadRef }: { threadRef: ScopedThread
               key={`${line.link.host}/${line.link.repository}#${line.link.number}`}
               line={line}
               threadRef={threadRef}
-              showRepository={showRepository}
+              repositoryLabel={repositoryLabel}
               onUnlink={handleUnlink}
             />
           ))}
