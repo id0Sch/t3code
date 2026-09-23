@@ -1,5 +1,6 @@
 import type { ScopedThreadRef, ThreadPullRequestLink } from "@t3tools/contracts";
 import {
+  normalizeThreadPullRequestKey,
   resolveThreadPullRequestChains,
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
@@ -167,7 +168,9 @@ function LinkRow({
                 />
               ) : null}
               {repositoryLabel !== "none" && snapshot !== null ? (
-                <span className="max-w-40 shrink-0 truncate">
+                // Never truncated: it is what tells otherwise alike rows apart, and the branches
+                // beside it already give way with a middle ellipsis.
+                <span className="shrink-0">
                   {repositoryLabel === "host" ? `${link.host}/${link.repository}` : link.repository}
                 </span>
               ) : null}
@@ -251,11 +254,10 @@ function EnabledThreadPullRequestsPanel({ threadRef }: { threadRef: ScopedThread
   const links = useMemo(() => visibleThreadPullRequests(thread?.pullRequests ?? []), [thread]);
   const lines = useMemo(() => pullRequestListLines(resolveThreadPullRequestChains(links)), [links]);
   const repositoryLabel = useMemo(() => {
-    const repositories = new Set(
-      links.map((link) => `${link.host}/${link.repository}`.toLowerCase()),
-    );
+    const keys = links.map(normalizeThreadPullRequestKey);
+    const repositories = new Set(keys.map((key) => `${key.host}/${key.repository}`));
     if (repositories.size < 2) return "none";
-    const hosts = new Set(links.map((link) => link.host.toLowerCase()));
+    const hosts = new Set(keys.map((key) => key.host));
     return hosts.size > 1 ? "host" : "repository";
   }, [links]);
   const handleUnlink = useCallback(
