@@ -66,10 +66,13 @@ function ChecksGlyph({
 function LinkRow({
   line,
   threadRef,
+  showRepository,
   onUnlink,
 }: {
   line: PullRequestListLine;
   threadRef: ScopedThreadRef;
+  /** Set when the thread links more than one repository, where a bare number is ambiguous. */
+  showRepository: boolean;
   onUnlink: (link: ThreadPullRequestLink) => void;
 }) {
   const openPrLink = useOpenPrLink(threadRef);
@@ -160,6 +163,9 @@ function LinkRow({
                   labelClassName="max-w-28"
                 />
               ) : null}
+              {showRepository && snapshot !== null ? (
+                <span className="max-w-40 shrink-0 truncate">{link.repository}</span>
+              ) : null}
               {snapshot !== null ? (
                 <PullRequestRowBranches head={snapshot.headBranch} base={snapshot.baseBranch} />
               ) : (
@@ -239,6 +245,10 @@ function EnabledThreadPullRequestsPanel({ threadRef }: { threadRef: ScopedThread
   const unlink = useAtomCommand(threadEnvironment.unlinkPullRequest, { reportFailure: true });
   const links = useMemo(() => visibleThreadPullRequests(thread?.pullRequests ?? []), [thread]);
   const lines = useMemo(() => pullRequestListLines(resolveThreadPullRequestChains(links)), [links]);
+  const showRepository = useMemo(
+    () => new Set(links.map((link) => `${link.host}/${link.repository}`.toLowerCase())).size > 1,
+    [links],
+  );
   const handleUnlink = useCallback(
     (link: ThreadPullRequestLink) => {
       void unlink({
@@ -292,6 +302,7 @@ function EnabledThreadPullRequestsPanel({ threadRef }: { threadRef: ScopedThread
               key={`${line.link.host}/${line.link.repository}#${line.link.number}`}
               line={line}
               threadRef={threadRef}
+              showRepository={showRepository}
               onUnlink={handleUnlink}
             />
           ))}
