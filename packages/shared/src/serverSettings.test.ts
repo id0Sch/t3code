@@ -37,8 +37,23 @@ describe("serverSettings helpers", () => {
       worktreeOnMerge: true,
       worktreeOnDelete: false,
       worktreeUnchanged: false,
+      worktreeKeepWhen: "uncommitted-changes",
       browserArtifactsAfterDays: null,
       logsAfterDays: 30,
+    });
+  });
+  it("replaces a source control host's patched field so a cleared account pin does not survive", () => {
+    const pinned = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      sourceControlHosts: {
+        github: { hosts: { "github.com": { account: "work", enabled: true } }, tokens: {} },
+      },
+    });
+    const unpinned = applyServerSettingsPatch(pinned, {
+      sourceControlHosts: { github: { hosts: { "github.com": { enabled: false } } } },
+    });
+    expect(unpinned.sourceControlHosts.github).toEqual({
+      hosts: { "github.com": { enabled: false } },
+      tokens: {},
     });
   });
   it("replaces SSH host lists when saving, editing, and removing hosts", () => {
@@ -793,5 +808,18 @@ describe("serverSettings helpers", () => {
     });
 
     expect(resolved.pauseWhenOnBattery).toBe(false);
+  });
+});
+
+describe("worktreesDirectory", () => {
+  it("remembers previous custom locations so their worktrees stay managed", () => {
+    const first = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, { worktreesDirectory: "/a" });
+    expect(first.previousWorktreesDirectories).toEqual([]);
+    const second = applyServerSettingsPatch(first, { worktreesDirectory: "/b" });
+    expect(second.previousWorktreesDirectories).toEqual(["/a"]);
+    const reset = applyServerSettingsPatch(second, { worktreesDirectory: "" });
+    expect(reset.previousWorktreesDirectories).toEqual(["/a", "/b"]);
+    const back = applyServerSettingsPatch(reset, { worktreesDirectory: "/a" });
+    expect(back.previousWorktreesDirectories).toEqual(["/b"]);
   });
 });
