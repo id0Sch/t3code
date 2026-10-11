@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { updateDeviceHosts } from "./deviceHostsSettings.logic";
+import {
+  SAVED_SECRET_MARKER,
+  updateDeviceHosts,
+  updateEasDeviceHosts,
+} from "./deviceHostsSettings.logic";
 
 describe("device host changes across environments", () => {
   const shared = { id: "shared", label: "Mac mini", target: "julius@macmini" };
@@ -53,5 +57,35 @@ describe("device host changes across environments", () => {
     const sibling = { ...shared, id: "sibling" };
     expect(() => updateDeviceHosts([remote, sibling], shared, true)).toThrow("Multiple hosts");
     expect(() => updateDeviceHosts([remote, sibling], shared, false)).toThrow("Multiple hosts");
+  });
+});
+
+describe("EAS host changes across environments", () => {
+  const ssh = { id: "ssh-host", label: "Mac mini", target: "julius@macmini" };
+  const project = { id: "eas", label: "App", projectId: "project-1", accessToken: "token" };
+  const ids = (values: string[]) => () => values.shift() ?? "exhausted";
+
+  it("gives a new host a fresh ID when it collides with an SSH host", () => {
+    const colliding = { ...project, id: ssh.id };
+    expect(updateEasDeviceHosts([], [ssh], colliding, false, ids([ssh.id, "fresh"]))).toEqual([
+      { ...project, id: "fresh" },
+    ]);
+    expect(updateEasDeviceHosts([], [ssh], project, false, ids([]))).toEqual([project]);
+  });
+
+  it("edits a project saved under another environment's ID and keeps its saved token", () => {
+    const remote = { ...project, id: "remote", accessToken: SAVED_SECRET_MARKER };
+    const edited = { ...project, label: "Renamed", accessToken: SAVED_SECRET_MARKER };
+    const saved = updateEasDeviceHosts([remote], [], edited, false, ids([]), project);
+    expect(saved).toEqual([{ ...edited, id: "remote" }]);
+    expect(updateEasDeviceHosts(saved, [], edited, true, ids([]), project)).toEqual([]);
+  });
+
+  it("refuses an ambiguous project instead of changing a sibling", () => {
+    const first = { ...project, id: "first" };
+    const second = { ...project, id: "second" };
+    expect(() => updateEasDeviceHosts([first, second], [], project, false, ids([]))).toThrow(
+      "Multiple EAS hosts",
+    );
   });
 });

@@ -6,15 +6,14 @@
  * server-proxied stream, and agents reach devices through the `device_*` MCP
  * tools plus the `agent-device` CLI the server preconfigures for them.
  *
- * Devices live on a *host*. Only the local host (the machine the server runs
- * on) exists today; the host id is carried everywhere so SSH and cloud hosts
- * can be added without changing the client contract.
+ * Devices live on a *host*: the server machine, an SSH host, or an EAS
+ * Simulator account whose cloud devices exist only while a session runs.
  *
  * @module Device
  */
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 
 export const DevicePlatform = Schema.Literals(["ios", "android"]);
 export type DevicePlatform = typeof DevicePlatform.Type;
@@ -22,15 +21,17 @@ export type DevicePlatform = typeof DevicePlatform.Type;
 export const DeviceHostId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export type DeviceHostId = typeof DeviceHostId.Type;
 
-/** The server machine. Always present; other host kinds are future work. */
+/** The server machine. Always present. */
 export const LOCAL_DEVICE_HOST_ID = "local" as DeviceHostId;
+
+const ConfiguredDeviceHostId = DeviceHostId.check(
+  Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
+  Schema.makeFilter((id) => id !== "local" || "The local host id is reserved."),
+);
 
 /** SSH aliases and key paths are resolved on the environment server. */
 export const SshDeviceHostConfig = Schema.Struct({
-  id: DeviceHostId.check(
-    Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
-    Schema.makeFilter((id) => id !== "local" || "The local host id is reserved."),
-  ),
+  id: ConfiguredDeviceHostId,
   label: TrimmedNonEmptyString,
   target: TrimmedNonEmptyString.check(Schema.isPattern(/^[^\s-][^\s]*$/)),
   identityFile: Schema.optional(TrimmedNonEmptyString),
@@ -39,6 +40,35 @@ export const SshDeviceHostConfig = Schema.Struct({
 export type SshDeviceHostConfig = typeof SshDeviceHostConfig.Type;
 
 export const SshDeviceHostConfigs = Schema.Array(SshDeviceHostConfig).check(
+  Schema.makeFilter(
+    (hosts) =>
+      new Set(hosts.map((host) => host.id)).size === hosts.length ||
+      "Device host ids must be unique.",
+  ),
+);
+
+/**
+ * An EAS Simulator account. Opening one of its devices starts a billed cloud
+ * session for `projectId`; T3 stops it when the last viewer closes it.
+ * `accessToken` is a secret: clients only see the redaction marker, and an
+ * empty value falls back to `EXPO_TOKEN` or the `eas login` state on the server.
+ */
+export const EasDeviceHostConfig = Schema.Struct({
+  id: ConfiguredDeviceHostId,
+  label: TrimmedNonEmptyString,
+  /** The EAS project ID (`extra.eas.projectId` in the app config). */
+  projectId: TrimmedNonEmptyString,
+  accessToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /** Installs the newest finished build of this EAS build profile when a session starts. */
+  buildProfile: Schema.optional(TrimmedNonEmptyString),
+  /** Simulator name or UDID, e.g. "iPhone 17 Pro". Expo picks one when omitted. */
+  iosDevice: Schema.optional(TrimmedNonEmptyString),
+  /** AVD hardware profile, e.g. "pixel_7". Expo picks one when omitted. */
+  androidDevice: Schema.optional(TrimmedNonEmptyString),
+});
+export type EasDeviceHostConfig = typeof EasDeviceHostConfig.Type;
+
+export const EasDeviceHostConfigs = Schema.Array(EasDeviceHostConfig).check(
   Schema.makeFilter(
     (hosts) =>
       new Set(hosts.map((host) => host.id)).size === hosts.length ||
@@ -59,6 +89,10 @@ export const DeviceSummary = Schema.Struct({
   version: Schema.String,
   booted: Schema.Boolean,
   physical: Schema.Boolean,
+  /** A page outside T3 for this device, such as its EAS Simulator session on expo.dev. */
+  externalUrl: Schema.optional(Schema.String),
+  /** Set when video only comes over WebRTC (EAS iOS); otherwise the platform's usual stream. */
+  transport: Schema.optional(Schema.Literal("webrtc")),
 });
 export type DeviceSummary = typeof DeviceSummary.Type;
 
@@ -89,7 +123,7 @@ export type DeviceToolVersions = typeof DeviceToolVersions.Type;
 
 export const DeviceHostSummary = Schema.Struct({
   id: DeviceHostId,
-  kind: Schema.Literals(["local", "ssh"]),
+  kind: Schema.Literals(["local", "ssh", "eas"]),
   label: TrimmedNonEmptyString,
   platforms: Schema.Array(DevicePlatformAvailability),
   tools: Schema.optional(DeviceToolVersions),
@@ -262,6 +296,11 @@ export const DeviceDetail = Schema.Struct({
   settings: DeviceSettings,
   foregroundApp: Schema.NullOr(DeviceForegroundApp),
   readAt: Schema.String,
+  /**
+   * Actions this device accepts when it supports only some of the platform's
+   * set (EAS cloud devices). Absent means every action for the platform.
+   */
+  supportedActions: Schema.optional(Schema.Array(Schema.String)),
 });
 export type DeviceDetail = typeof DeviceDetail.Type;
 

@@ -21,6 +21,7 @@ export function DeviceHostUpdates({
         const status = state.hostStatuses[host.id];
         if (!status || !["installing", "starting", "failed"].includes(status.status)) return null;
         const failed = status.status === "failed";
+        const eas = host.kind === "eas";
         return (
           <div
             key={host.id}
@@ -32,15 +33,20 @@ export function DeviceHostUpdates({
               <p className="whitespace-pre-wrap break-words text-muted-foreground">
                 {status.detail ??
                   (failed
-                    ? "Device support could not start."
-                    : status.status === "installing"
-                      ? "Installing device tools…"
-                      : "Starting device tools…")}
+                    ? eas
+                      ? "EAS Simulator is unavailable."
+                      : "Device support could not start."
+                    : eas
+                      ? "Connecting to EAS Simulator…"
+                      : status.status === "installing"
+                        ? "Installing device tools…"
+                        : "Starting device tools…")}
               </p>
               {failed ? (
                 <p className="mt-1 text-muted-foreground">
-                  Check the host connection and network access, then retry. Your device settings are
-                  saved.
+                  {eas
+                    ? "Check the project ID and access token in Settings → Integrations, then retry."
+                    : "Check the host connection and network access, then retry. Your device settings are saved."}
                 </p>
               ) : null}
             </div>

@@ -2,6 +2,7 @@ import type { DevicePlatform } from "@t3tools/contracts";
 import {
   Camera,
   ChevronLeft,
+  ExternalLink,
   Home,
   Keyboard,
   Box,
@@ -40,6 +41,11 @@ export function DeviceControlsRail(props: {
   handle: DeviceStreamHandle | null;
   view: DeviceViewControls;
   controls: DeviceControls;
+  /** Powering off an EAS device stops its billed cloud session. */
+  cloudSession: boolean;
+  /** A page for this device outside T3, such as its EAS session on expo.dev. */
+  externalUrl: string | undefined;
+  onOpenExternal: () => void;
   screenshotPending: boolean;
   onScreenshot: () => void;
   toolsOpen: boolean;
@@ -86,34 +92,36 @@ export function DeviceControlsRail(props: {
             >
               <Square />
             </RailButton>
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Rotate device"
-                    disabled={controls.disabled}
-                  />
-                }
-              >
-                <RotateCcw />
-              </MenuTrigger>
-              <MenuPopup side={popupSide}>
-                <MenuItem
-                  onClick={() => void controls.act({ type: "setOrientation", value: "portrait" })}
-                >
-                  Portrait
-                </MenuItem>
-                <MenuItem
-                  onClick={() =>
-                    void controls.act({ type: "setOrientation", value: "landscape_left" })
+            {controls.supports("setOrientation") ? (
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Rotate device"
+                      disabled={controls.disabled}
+                    />
                   }
                 >
-                  Landscape
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
+                  <RotateCcw />
+                </MenuTrigger>
+                <MenuPopup side={popupSide}>
+                  <MenuItem
+                    onClick={() => void controls.act({ type: "setOrientation", value: "portrait" })}
+                  >
+                    Portrait
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() =>
+                      void controls.act({ type: "setOrientation", value: "landscape_left" })
+                    }
+                  >
+                    Landscape
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            ) : null}
           </>
         ) : (
           <RailButton
@@ -126,59 +134,67 @@ export function DeviceControlsRail(props: {
           </RailButton>
         )}
         <RailDivider />
-        <RailButton
-          tooltipSide={popupSide}
-          label={`Switch device to ${nextAppearance} mode`}
-          disabled={controls.disabled || !settings?.appearance}
-          onClick={() => void controls.act({ type: "setAppearance", value: nextAppearance })}
-        >
-          <MorphIcon icon={settings?.appearance === "dark" ? Sun : Moon} />
-        </RailButton>
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Device text size"
-                title="Device text size"
-                disabled={controls.disabled || !settings?.textSize}
-              />
+        {controls.supports("setAppearance") ? (
+          <RailButton
+            tooltipSide={popupSide}
+            label={`Switch device to ${nextAppearance} mode`}
+            disabled={
+              controls.disabled || !controls.settable("setAppearance", settings?.appearance)
             }
+            onClick={() => void controls.act({ type: "setAppearance", value: nextAppearance })}
           >
-            <Type />
-          </MenuTrigger>
-          <MenuPopup side={popupSide} className="min-w-40">
-            <MenuRadioGroup
-              value={settings?.textSize ?? ""}
-              onValueChange={(value) => {
-                if (
-                  value === "small" ||
-                  value === "default" ||
-                  value === "large" ||
-                  value === "extra-large"
-                )
-                  void controls.act({ type: "setTextSize", value });
-              }}
+            <MorphIcon icon={settings?.appearance === "dark" ? Sun : Moon} />
+          </RailButton>
+        ) : null}
+        {controls.supports("setTextSize") ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Device text size"
+                  title="Device text size"
+                  disabled={
+                    controls.disabled || !controls.settable("setTextSize", settings?.textSize)
+                  }
+                />
+              }
             >
-              {(
-                [
-                  ["small", "Small"],
-                  ["default", "Default"],
-                  ["large", "Large"],
-                  ["extra-large", "Extra large"],
-                ] as const
-              ).map(([value, label]) => (
-                <MenuRadioItem key={value} value={value}>
-                  <span className="flex items-center gap-2">
-                    <span className="flex-1">{label}</span>
-                    <MenuRadioItemIndicator />
-                  </span>
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          </MenuPopup>
-        </Menu>
+              <Type />
+            </MenuTrigger>
+            <MenuPopup side={popupSide} className="min-w-40">
+              <MenuRadioGroup
+                value={settings?.textSize ?? ""}
+                onValueChange={(value) => {
+                  if (
+                    value === "small" ||
+                    value === "default" ||
+                    value === "large" ||
+                    value === "extra-large"
+                  )
+                    void controls.act({ type: "setTextSize", value });
+                }}
+              >
+                {(
+                  [
+                    ["small", "Small"],
+                    ["default", "Default"],
+                    ["large", "Large"],
+                    ["extra-large", "Extra large"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <MenuRadioItem key={value} value={value}>
+                    <span className="flex items-center gap-2">
+                      <span className="flex-1">{label}</span>
+                      <MenuRadioItemIndicator />
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
+        ) : null}
         <RailButton
           tooltipSide={popupSide}
           label="Device tools"
@@ -217,10 +233,16 @@ export function DeviceControlsRail(props: {
               <X />
               Close device panel
             </MenuItem>
+            {props.externalUrl ? (
+              <MenuItem onClick={props.onOpenExternal}>
+                <ExternalLink />
+                Open in Expo
+              </MenuItem>
+            ) : null}
             <MenuSeparator />
             <MenuItem variant="destructive" onClick={props.onPowerOff}>
               <Power />
-              Power off device
+              {props.cloudSession ? "Stop cloud session" : "Power off device"}
             </MenuItem>
           </MenuPopup>
         </Menu>

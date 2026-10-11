@@ -3,6 +3,7 @@ import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { DeviceHostsSettings } from "./DeviceHostsSettings";
+import { EasDeviceHostsSettings } from "./EasDeviceHostsSettings";
 /**
  * Integrations settings - preferences for surfaces T3 Code embeds rather than
  * owns. Browser is the first section: the defaults a preview tab opens at,
@@ -886,6 +887,7 @@ function DeviceIntegrationControls({
         />
       ) : null}
       <DeviceHostsSettings environmentId={environmentId} />
+      <EasDeviceHostsSettings environmentId={environmentId} />
     </>
   );
 }

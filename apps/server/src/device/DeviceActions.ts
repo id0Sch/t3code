@@ -98,7 +98,7 @@ const ok = (operation: string) => (result: { code: number; stderr: string; stdou
 
 // iOS text-size categories in ascending order; the four shared steps index
 // into it. `default` is what a fresh simulator reports ("large").
-const IOS_TEXT_SIZES: Record<DeviceTextSize, string> = {
+export const IOS_TEXT_SIZES: Record<DeviceTextSize, string> = {
   small: "small",
   default: "large",
   large: "extra-extra-large",

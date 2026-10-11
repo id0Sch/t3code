@@ -111,6 +111,39 @@ installation, and connectivity to development servers such as Metro separately.
 A simulator on another machine cannot reach Metro through your environment's
 localhost without forwarding or another reachable address.
 
+## EAS Simulator
+
+[EAS Simulator](https://expo.dev/services/simulators) runs iOS simulators and
+Android emulators in Expo's cloud, so you can use them from a server without
+Xcode or the Android SDK. Add your project in **Settings → Integrations → EAS
+Simulator** with its EAS project ID (`extra.eas.projectId` in the app config).
+An Expo access token is optional; without one the server uses `EXPO_TOKEN` or
+its `eas login`.
+
+The project's iOS and Android devices then appear in the Device panel picker.
+Opening one starts a cloud session, which takes about a minute and is billed to
+your Expo account while it runs. **Stop cloud session** ends it, and so does
+closing the device in every thread that has it open. Expo also stops a session
+after 15 idle minutes or 60 minutes in total. Agents open and drive cloud
+devices like any other device; `device_close` stops the session.
+
+Optional settings on the project:
+
+- **Build profile** installs the newest finished build of that EAS build
+  profile when a device starts. It applies to both platforms, and a platform
+  with no finished build of the profile does not start. iOS needs a simulator
+  build, such as a profile with `"ios": { "simulator": true }`.
+- **iOS device** and **Android device** choose the model, such as
+  `iPhone 17 Pro` or `pixel_7`. Expo picks one when they are empty.
+
+The tools drawer offers appearance, text size, location,
+permissions, launching apps, opening URLs, and push notifications. Other
+settings, the accessibility overlay, and the event log are unavailable; **Open
+in Expo** in the device menu opens the session on expo.dev, which has its own
+tools. Each project runs one iOS and one Android cloud device at a time. A
+cloud device reaches Metro on your machine only through a public URL, such as
+`expo start --tunnel`.
+
 ## Device tool updates
 
 The connected T3 server manages the device hub and agent tools on its own machine and configured SSH hosts. Required versions install automatically the next time those tools are used. Settings → Integrations → Check device tool versions reads installed versions without installing tools or starting devices.

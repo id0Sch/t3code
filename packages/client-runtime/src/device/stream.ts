@@ -11,7 +11,10 @@
  *   2 keyframe, 3 delta, 4 JPEG seed) decoded with WebCodecs; input goes over
  *   `helper/ws?device=<udid>` as `[tag][json]` packets. When WebCodecs is
  *   unavailable (plain-http remote origins) the MJPEG endpoint is used as an
- *   `<img>` source instead.
+ *   `<img>` source instead. EAS cloud simulators lock video to WebRTC: the
+ *   client reads ICE servers from `/api?device=<udid>`, POSTs a non-trickle
+ *   offer to `helper/<udid>/webrtc/offer` (see `webrtcVideo.ts`), and keeps
+ *   the same input socket.
  * - Android (serve-emu): one WebSocket at `ws?device=<serial>&frame-meta=1`
  *   carries H.264 access units prefixed with a 16-byte "SEMU" header
  *   (magic, version, key flag, pts) and accepts JSON gestures upstream.
@@ -29,6 +32,11 @@ import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import { createCanvasFrameSink, type DeviceFrameSink } from "./frame.ts";
 import { type DeviceHubAccess, withDeviceHubQuery } from "./hubAccess.ts";
+import {
+  openWebRtcVideo,
+  webRtcVideoUnsupportedReason,
+  type WebRtcVideoSession,
+} from "./webrtcVideo.ts";
 import type { DevicePlatform } from "@t3tools/contracts";
 
 export type DeviceStreamStatus = "connecting" | "streaming" | "error";
@@ -110,6 +118,8 @@ export interface DeviceStreamTarget {
   /** Internal fixed-panel feeds share their parent's input session. */
   readonly panelId?: 1 | 3;
   readonly videoOnly?: boolean;
+  /** iOS only: the simulator serves video over WebRTC alone (EAS cloud devices). */
+  readonly transport?: "webrtc";
 }
 
 export type DeviceHardwareButton = "home" | "back" | "recents" | "power" | "appSwitcher";
@@ -359,6 +369,7 @@ export function createDeviceStreamClient(
     withDeviceHubQuery(`${access.httpBase}${vendor}${path}`, access);
   const wsUrl = (path: string) => withDeviceHubQuery(`${access.wsBase}${vendor}${path}`, access);
   const useWebCodecs = isWebCodecsSupported() && !(platform === "ios" && target.preferMjpeg);
+  const useWebRtc = platform === "ios" && target.transport === "webrtc";
 
   let stopped = true;
   let socket: WebSocket | null = null;
@@ -382,6 +393,7 @@ export function createDeviceStreamClient(
   let mjpegImage: HTMLImageElement | null = null;
   let releaseImage: (() => void) | null = null;
   let videoGeneration = 0;
+  let webRtcSession: WebRtcVideoSession | null = null;
   let panelClients: DeviceStreamClient[] = [];
   let panelSinks: DuoPanelSinks | null = null;
   let rotationCursor: DeviceScreenSize["orientation"] | null = null;
@@ -751,6 +763,34 @@ export function createDeviceStreamClient(
     }
   };
 
+  // iOS WebRTC video for simulators whose AVCC/MJPEG endpoints are locked.
+  const startWebRtcVideo = () => {
+    const lifecycle = generation;
+    const feedGeneration = ++videoGeneration;
+    webRtcSession?.close();
+    const isCurrent = () =>
+      !stopped && generation === lifecycle && videoGeneration === feedGeneration;
+    const session = openWebRtcVideo({
+      apiUrl: httpUrl(`/api?device=${device}`),
+      offerUrl: httpUrl(`/helper/${device}/webrtc/offer`),
+      closeUrl: httpUrl(`/helper/${device}/webrtc/close`),
+      credentials: access.credentials ? "include" : "same-origin",
+      onFrame: (video) => {
+        if (isCurrent()) paint(video, video.videoWidth, video.videoHeight);
+      },
+      onUnauthorized: () => {
+        if (isCurrent()) handleUnauthorized();
+      },
+      onFailure: (detail) => {
+        if (!isCurrent() || webRtcSession !== session) return;
+        webRtcSession = null;
+        connecting(detail);
+        scheduleRetry("video", startWebRtcVideo);
+      },
+    });
+    webRtcSession = session;
+  };
+
   /**
    * serve-sim's helper only accepts HID and pushes its screen config once
    * screen capture is running, and the AVCC stream does not reliably start
@@ -817,7 +857,8 @@ export function createDeviceStreamClient(
   const connectIosInput = async () => {
     if (stopped) return;
     const session = generation;
-    await primeIosHelper(session);
+    // WebRTC-locked helpers answer stream.mjpeg with 409; the session starts capture instead.
+    if (!useWebRtc) await primeIosHelper(session);
     if (stopped || generation !== session) return;
     const ws = new WebSocket(wsUrl(`/helper/ws?device=${device}`));
     ws.binaryType = "arraybuffer";
@@ -981,7 +1022,12 @@ export function createDeviceStreamClient(
     configuring = false;
     iosInputUnavailable = false;
     connecting();
-    if (platform === "ios") {
+    if (useWebRtc) {
+      const unsupported = webRtcVideoUnsupportedReason();
+      if (unsupported) return fail(unsupported);
+      if (!target.videoOnly) void connectIosInput();
+      startWebRtcVideo();
+    } else if (platform === "ios") {
       if (!target.videoOnly) void connectIosInput();
       if (useWebCodecs) void readIosVideo();
       else fallBackToMjpeg();
@@ -1015,6 +1061,8 @@ export function createDeviceStreamClient(
     primeController = null;
     controller?.abort();
     controller = null;
+    webRtcSession?.close();
+    webRtcSession = null;
     const discarded = socket;
     socket = null;
     discarded?.close();
@@ -1051,7 +1099,9 @@ export function createDeviceStreamClient(
       if (platform === "ios") send(taggedJson(IOS_MSG_TOUCH, { type: phase, x, y }));
     },
     setDuoPanels(panels) {
-      if (platform !== "ios" || target.videoOnly || stopped || panelSinks === panels) return;
+      // Fixed Duo panel feeds are AVCC-only.
+      if (platform !== "ios" || useWebRtc || target.videoOnly || stopped || panelSinks === panels)
+        return;
       if (panels && !screen?.supportsHingeAngle) return;
       panelSinks = panels;
       videoGeneration++;

@@ -36,6 +36,7 @@ export function agentDeviceQuickStart(
   device: DeviceSummary,
   targetArgs = agentDeviceTargetArgs(device),
   command = "agent-device",
+  cloud = false,
 ): string {
   const executable = /^[a-zA-Z0-9_./:-]+$/.test(command)
     ? command
@@ -60,8 +61,15 @@ export function agentDeviceQuickStart(
     `  ${executable} screenshot /tmp/shot.png ${target}        # or call device_screenshot`,
     `  ${executable} install <app> <path-to-.app-or-.apk> ${target}`,
     `Prefer snapshot refs over coordinates. Run ${executable} help for workflow guides and ${executable} <command> --help for flags.`,
-    "Prefer agent-device for driving this device. simctl, adb, and xcrun remain available for anything it does not cover.",
-    "For remote hosts, arrange builds, app installation, and any Metro reverse forwarding yourself. T3 provides discovery, streaming, and control only.",
+    ...(cloud
+      ? [
+          "This is an EAS cloud device. agent-device runs every command on it remotely; simctl, adb, and xcrun cannot reach it. Install apps from a local .app/.apk path or a URL.",
+          "It is billed while it runs. Call device_close when you are done so T3 stops it.",
+        ]
+      : [
+          "Prefer agent-device for driving this device. simctl, adb, and xcrun remain available for anything it does not cover.",
+          "For remote hosts, arrange builds, app installation, and any Metro reverse forwarding yourself. T3 provides discovery, streaming, and control only.",
+        ]),
     "Keep the returned --config and --session flags on every command. Other hosts can be used concurrently; opening one does not switch these commands.",
     platformNotes,
   ].join("\n");
@@ -202,7 +210,12 @@ const handlers = {
       return {
         device,
         agentDevice: { command, targetArgs },
-        quickStart: agentDeviceQuickStart(device, targetArgs, command),
+        quickStart: agentDeviceQuickStart(
+          device,
+          targetArgs,
+          command,
+          after.hosts.find((host) => host.id === device.hostId)?.kind === "eas",
+        ),
       };
     }).pipe(Effect.mapError(toolError)),
   ),
