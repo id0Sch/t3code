@@ -230,3 +230,26 @@ it.each(["hidden", "access renewed"] as const)(
     expect(controls.foregroundApp?.id).toBe("current.live.app");
   },
 );
+
+it("keeps applied values for a device without read-back and gates its actions", async () => {
+  const cloud = (): Result => ({
+    _tag: "Success",
+    value: {
+      hostId: "remote",
+      deviceId: "phone",
+      settings: {},
+      foregroundApp: null,
+      readAt: "2026-09-20T00:00:00Z",
+      supportedActions: ["setAppearance", "setTextSize"],
+    },
+  });
+  read.mockResolvedValue(cloud());
+  await mount();
+  expect(controls.supports("setTextSize")).toBe(true);
+  expect(controls.supports("setToggle")).toBe(false);
+  expect(controls.settable("setAppearance", controls.detail?.settings.appearance)).toBe(true);
+  action.mockResolvedValue(cloud());
+  await act(async () => controls.act({ type: "setAppearance", value: "dark" }));
+  await act(async () => controls.act({ type: "setTextSize", value: "large" }));
+  expect(controls.detail?.settings).toEqual({ appearance: "dark", textSize: "large" });
+});

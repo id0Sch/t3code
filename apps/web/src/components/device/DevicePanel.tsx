@@ -27,6 +27,9 @@ import { PreviewPanelShell, type PreviewPanelMode } from "../preview/PreviewPane
 const platformLabel = (platform: DevicePlatform) =>
   platform === "ios" ? "iOS Simulators" : "Android Emulators";
 
+const hostKind = (state: DeviceServiceState, hostId: string) =>
+  state.hosts.find((host) => host.id === hostId)?.kind;
+
 const deviceKey = (device: Pick<DeviceSummary, "hostId" | "id">) =>
   `${device.hostId}\u0000${device.id}`;
 
@@ -203,6 +206,7 @@ export function DevicePanel(props: {
             key={`${environmentId}\u0000${deviceKey(activeDevice)}`}
             environmentId={environmentId}
             device={activeDevice}
+            hostKind={hostKind(state, activeDevice.hostId)}
             hostLabel={
               state.hosts.find((host) => host.id === activeDevice.hostId)?.label ?? "Device host"
             }
@@ -225,7 +229,11 @@ export function DevicePanel(props: {
               pendingDevice
                 ? pendingDevice.booted
                   ? "Opening device…"
-                  : "Starting device…"
+                  : hostKind(state, pendingDevice.hostId) === "eas"
+                    ? pendingDevice.platform === "ios"
+                      ? "Starting cloud simulator…"
+                      : "Starting cloud emulator…"
+                    : "Starting device…"
                 : state.hostStatus === "installing"
                   ? (state.hostStatusDetail ?? "Installing device support…")
                   : "Finding devices…"

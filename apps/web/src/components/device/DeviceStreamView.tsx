@@ -1,4 +1,4 @@
-import type { DevicePlatform, EnvironmentId } from "@t3tools/contracts";
+import type { DevicePlatform, DeviceSummary, EnvironmentId } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
@@ -59,6 +59,8 @@ export function DeviceStreamView(props: {
   readonly deviceDescription?: string;
   readonly visible: boolean;
   readonly hostId: string;
+  /** From the device summary: the server says when video only comes over WebRTC. */
+  readonly transport?: DeviceSummary["transport"];
   /** The full panel opts into the phone spike; compact viewers retain their flat presentation. */
   readonly allowPhoneView?: boolean;
   readonly renderControls?: (view: DeviceViewControls) => ReactNode;
@@ -92,6 +94,7 @@ export function DeviceStreamView(props: {
     cancelPhoneInputRef.current = cancel;
   }, []);
   const access = useDeviceHubAccess(props.environmentId, props.hostId);
+  const transport = props.transport;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clientRef = useRef<DeviceStreamClient | null>(null);
   const [status, setStatus] = useState<DeviceStreamStatus>("connecting");
@@ -118,7 +121,12 @@ export function DeviceStreamView(props: {
       return;
     }
     const client = createDeviceStreamClient(
-      { platform: props.platform, deviceId: props.deviceId, access },
+      {
+        platform: props.platform,
+        deviceId: props.deviceId,
+        access,
+        ...(transport ? { transport } : {}),
+      },
       createCanvasFrameSink(canvas, () => frameListenerRef.current?.()),
       {
         onDuoControl: setDuoControl,
@@ -177,6 +185,7 @@ export function DeviceStreamView(props: {
     props.environmentId,
     props.platform,
     props.visible,
+    transport,
   ]);
 
   // Displayed aspect ratio (width / height) of the device as the user sees it.

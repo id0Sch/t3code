@@ -9,7 +9,11 @@
  * T3 Connect already carry `/api/*` and WebSocket upgrades for the app itself.
  *
  * Only the routes the Device panel needs are forwarded. Anything under the
- * hub's dashboard, exec, or WebRTC surface is rejected here.
+ * hub's dashboard or exec surface is rejected here. WebRTC signaling is let
+ * through only because cloud iOS simulators (EAS) serve video no other way.
+ *
+ * Each host decides where a route lands (`DeviceHubEndpoint.upstream`): the
+ * loopback hub for local and SSH hosts, a session's own preview server for EAS.
  */
 import { AuthOrchestrationReadScope, AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -25,6 +29,7 @@ import * as Socket from "effect/socket/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 
 import { authenticateMediaRequest } from "../auth/http.ts";
+import * as DeviceHost from "./DeviceHost.ts";
 import * as DeviceService from "./DeviceService.ts";
 
 const ALLOWED_PATHS: ReadonlyArray<RegExp> = [
@@ -34,6 +39,7 @@ const ALLOWED_PATHS: ReadonlyArray<RegExp> = [
   /^\/vendor\/serve-sim\/api\/event-log(\/events)?$/,
   /^\/vendor\/serve-sim\/helper\/[^/]+\/(stream\.mjpeg|stream\.avcc|config|health|ax|foreground)$/,
   /^\/vendor\/serve-sim\/helper\/[^/]+\/panel\/(1|3)\/stream\.avcc$/,
+  /^\/vendor\/serve-sim\/helper\/[^/]+\/webrtc\/(offer|close)$/,
   /^\/vendor\/serve-sim\/appstate$/,
   /^\/vendor\/serve-emu\/api\/(devices|screenshot|stream-mode|stream-settings|accessibility|fold)$/,
   /^\/vendor\/serve-emu\/health$/,
@@ -42,6 +48,7 @@ const ALLOWED_PATHS: ReadonlyArray<RegExp> = [
 /** Read paths are GET-only; only these accept other methods (screenshot captures, stream tuning). */
 const MUTABLE_PATHS: ReadonlyArray<RegExp> = [
   /^\/vendor\/serve-sim\/api\/screenshot$/,
+  /^\/vendor\/serve-sim\/helper\/[^/]+\/webrtc\/(offer|close)$/,
   /^\/vendor\/serve-emu\/api\/(screenshot|stream-mode|stream-settings)$/,
   /^\/vendor\/serve-emu\/api\/fold$/,
 ];
@@ -88,11 +95,12 @@ const forwardHeaders = (request: HttpServerRequest.HttpServerRequest, origin: st
  */
 const proxyWebSocket = Effect.fn("DeviceHubProxy.proxyWebSocket")(function* (
   request: HttpServerRequest.HttpServerRequest,
-  upstreamUrl: string,
+  target: DeviceHost.DeviceHubUpstream,
 ) {
   const client = yield* request.upgrade;
-  const upstream = yield* Socket.makeWebSocket(upstreamUrl, {
+  const upstream = yield* Socket.makeWebSocket(target.url.replace(/^http/, "ws"), {
     openTimeout: "10 seconds",
+    ...(target.protocols ? { protocols: [...target.protocols] } : {}),
   }).pipe(Effect.provide(NodeSocket.layerWebSocketConstructor));
   yield* Effect.scoped(
     Effect.gen(function* () {
@@ -119,16 +127,21 @@ const pumpFrames = (source: Socket.Socket, sink: Socket.Writer) =>
 
 const proxyHttp = Effect.fn("DeviceHubProxy.proxyHttp")(function* (
   request: HttpServerRequest.HttpServerRequest,
-  upstreamUrl: string,
-  hubOrigin: string,
+  target: DeviceHost.DeviceHubUpstream,
 ) {
   const httpClient = HttpClient.withScope(yield* HttpClient.HttpClient);
   const method = request.method;
-  const upstreamRequest = HttpClientRequest.make(method)(upstreamUrl).pipe(
-    HttpClientRequest.setHeaders(forwardHeaders(request, hubOrigin)),
+  const upstreamRequest = HttpClientRequest.make(method)(target.url).pipe(
+    HttpClientRequest.setHeaders({
+      ...forwardHeaders(request, new URL(target.url).origin),
+      ...target.headers,
+    }),
     method === "GET" || method === "HEAD"
       ? (self) => self
-      : HttpClientRequest.bodyStream(request.stream),
+      : // Without the client's type the body defaults to octet-stream, which WebRTC signaling rejects.
+        HttpClientRequest.bodyStream(request.stream, {
+          contentType: request.headers["content-type"],
+        }),
   );
   const response = yield* httpClient.execute(upstreamRequest);
   const headers: Record<string, string> = {};
@@ -183,15 +196,14 @@ const handler = Effect.gen(function* () {
   const upstreamSearch = new URLSearchParams(url.value.search);
   upstreamSearch.delete("wsTicket");
   upstreamSearch.delete("hostId");
-  const search = upstreamSearch.size > 0 ? `?${upstreamSearch.toString()}` : "";
-  const upstreamPath = `${hubPath}${search}`;
-  if (upgrade) {
-    return yield* proxyWebSocket(
-      request,
-      `${ready.hub.origin.replace(/^http/, "ws")}${upstreamPath}`,
-    );
+  const target = DeviceHost.hubUpstream(ready.hub, hubPath, upstreamSearch);
+  if (!target) {
+    return HttpServerResponse.text("Not Found", { status: 404 });
   }
-  return yield* proxyHttp(request, `${ready.hub.origin}${upstreamPath}`, ready.hub.origin);
+  if (upgrade) {
+    return yield* proxyWebSocket(request, target);
+  }
+  return yield* proxyHttp(request, target);
 });
 
 export const layer = HttpRouter.add("*", `${DeviceService.DEVICE_HUB_ROUTE_PREFIX}/*`, handler);

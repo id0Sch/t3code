@@ -14,6 +14,7 @@ import {
   Alert,
   AppState,
   BackHandler,
+  Linking,
   Pressable,
   StatusBar,
   View,
@@ -132,20 +133,21 @@ function DevicePreviewScreen({
     return () => subscription.remove();
   }, [controlsVisible]);
 
+  const cloudSession = preview?.hostKind === "eas";
+  const externalUrl = state.data?.devices.find(
+    (device) => device.hostId === preview?.session.hostId && device.id === preview.session.deviceId,
+  )?.externalUrl;
   const shutDownDevice = async () => {
     if (!preview || shuttingDown) return;
     setShuttingDown(true);
     try {
-      const result = await shutdown({
-        environmentId,
-        input: {
-          hostId: preview.session.hostId,
-          deviceId: preview.session.deviceId,
-          platform: preview.session.platform,
-        },
-      });
+      const { hostId, deviceId, platform } = preview.session;
+      const result = await shutdown({ environmentId, input: { hostId, deviceId, platform } });
       if (result._tag === "Failure") {
-        Alert.alert("Could not shut down device", String(Cause.squash(result.cause)));
+        Alert.alert(
+          cloudSession ? "Could not stop cloud session" : "Could not shut down device",
+          String(Cause.squash(result.cause)),
+        );
       }
     } finally {
       setShuttingDown(false);
@@ -178,29 +180,33 @@ function DevicePreviewScreen({
           },
         ]
       : []),
-    {
-      id: "device-tools",
-      title: "Device tool versions",
-      icon: "info.circle",
-      onPress: () =>
-        Alert.alert(
-          "Device tool versions",
-          deviceToolUpdateOwnership +
-            "\n\n" +
-            deviceToolUpdatePolicy(
-              state.data?.hosts.find((host) => host.id === preview?.session.hostId)?.tools,
-            ) +
-            "\n\n" +
-            deviceToolVersionLabels(
-              state.data?.hosts.find((host) => host.id === preview?.session.hostId)?.tools,
-            ).join("\n") +
-            "\n" +
-            (state.data?.hosts.find((host) => host.id === preview?.session.hostId)
-              ?.toolInspectionError ??
-              state.data?.hostStatuses[preview?.session.hostId ?? ""]?.detail ??
-              ""),
-        ),
-    },
+    ...(cloudSession
+      ? []
+      : [
+          {
+            id: "device-tools",
+            title: "Device tool versions",
+            icon: "info.circle" as const,
+            onPress: () =>
+              Alert.alert(
+                "Device tool versions",
+                deviceToolUpdateOwnership +
+                  "\n\n" +
+                  deviceToolUpdatePolicy(
+                    state.data?.hosts.find((host) => host.id === preview?.session.hostId)?.tools,
+                  ) +
+                  "\n\n" +
+                  deviceToolVersionLabels(
+                    state.data?.hosts.find((host) => host.id === preview?.session.hostId)?.tools,
+                  ).join("\n") +
+                  "\n" +
+                  (state.data?.hosts.find((host) => host.id === preview?.session.hostId)
+                    ?.toolInspectionError ??
+                    state.data?.hostStatuses[preview?.session.hostId ?? ""]?.detail ??
+                    ""),
+              ),
+          },
+        ]),
     {
       id: "reload",
       title: "Reload stream",
@@ -240,9 +246,25 @@ function DevicePreviewScreen({
           },
         ]
       : []),
+    ...(externalUrl
+      ? [
+          {
+            id: "open-external",
+            title: "Open in Expo",
+            icon: "safari" as const,
+            onPress: () => void Linking.openURL(externalUrl).catch(() => undefined),
+          },
+        ]
+      : []),
     {
       id: "shutdown",
-      title: shuttingDown ? "Shutting down…" : "Shut down device",
+      title: cloudSession
+        ? shuttingDown
+          ? "Stopping…"
+          : "Stop cloud session"
+        : shuttingDown
+          ? "Shutting down…"
+          : "Shut down device",
       icon: "power",
       disabled: !preview || shuttingDown,
       onPress: () => void shutDownDevice(),
@@ -400,6 +422,7 @@ function OpenDevicePreview({
       access={access}
       platform={session.platform}
       deviceId={session.deviceId}
+      {...(preview.transport ? { transport: preview.transport } : {})}
       colors={{
         background: themeVariables["--color-sheet-solid"],
         foreground: themeVariables["--color-foreground"],

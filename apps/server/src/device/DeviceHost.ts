@@ -1,19 +1,23 @@
 /**
  * A device host is a machine with simulators or emulators on it. The service
- * layer only ever talks to this interface, so a future SSH or cloud host slots
- * in beside `LocalDeviceHost` without touching discovery, the proxy, or the
- * MCP tools.
+ * layer only ever talks to this interface, so the local, SSH, and EAS hosts
+ * share discovery, the proxy, and the MCP tools.
  *
- * Every ready host presents a loopback origin where expo-device-hub answers.
- * Hosts add an agent-device daemon endpoint only after agent access is granted.
- * For the local host both run on this machine; a remote host would forward
- * them here.
+ * Local and SSH hosts present a loopback origin where expo-device-hub answers
+ * and add an agent-device daemon endpoint after agent access is granted. A
+ * cloud host (EAS) has no hub of its own: it creates devices on demand, so it
+ * implements `managed` and maps hub routes onto each device's own preview
+ * server.
  */
 import type {
+  DeviceActionInput,
+  DeviceActionType,
   DeviceHostId,
   DeviceHostSummary,
+  DeviceId,
   DevicePlatform,
   DevicePlatformAvailability,
+  DeviceSummary,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -39,9 +43,54 @@ export class DeviceHostTimeoutError extends Schema.TaggedError<DeviceHostTimeout
   }
 }
 
+export interface DeviceHubUpstream {
+  readonly url: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  /** WebSocket subprotocols, for upstreams that read their credential there. */
+  readonly protocols?: ReadonlyArray<string>;
+}
+
 export interface DeviceHubEndpoint {
   /** Loopback origin of expo-device-hub, e.g. `http://127.0.0.1:3400`. */
   readonly origin: string;
+  /**
+   * Resolves a hub path (with its query) for hosts that are not one
+   * expo-device-hub. Null means the route does not exist there.
+   */
+  readonly upstream?: (path: string, search: URLSearchParams) => DeviceHubUpstream | null;
+}
+
+/** Where a hub route is served on this host. */
+export const hubUpstream = (
+  hub: DeviceHubEndpoint,
+  path: string,
+  search: URLSearchParams = new URLSearchParams(),
+): DeviceHubUpstream | null =>
+  hub.upstream
+    ? hub.upstream(path, search)
+    : { url: `${hub.origin}${path}${search.size > 0 ? `?${search.toString()}` : ""}` };
+
+/**
+ * Discovery and power for a host whose devices exist only while T3 runs them.
+ * Each device brings its own agent-device daemon, so agent access is per
+ * platform rather than per host.
+ */
+export interface ManagedDevices {
+  readonly list: Effect.Effect<ReadonlyArray<DeviceSummary>, DeviceHostError>;
+  /** Starts the device and returns its id once it can stream. */
+  readonly boot: (device: DeviceSummary) => Effect.Effect<DeviceId, DeviceHostError>;
+  readonly shutdown: (
+    deviceId: DeviceId,
+    platform: DevicePlatform,
+  ) => Effect.Effect<void, DeviceHostError>;
+  /** The daemon of the running device on `platform`, if one is running. */
+  readonly agentDevice: (platform: DevicePlatform) => Effect.Effect<AgentDeviceEndpoint | null>;
+  /** Tools-drawer actions these devices accept, run without host commands. */
+  readonly supportedActions: (platform: DevicePlatform) => ReadonlyArray<DeviceActionType>;
+  readonly action: (
+    device: DeviceSummary,
+    input: DeviceActionInput,
+  ) => Effect.Effect<void, DeviceHostError>;
 }
 
 export interface AgentDeviceEndpoint {
@@ -104,5 +153,6 @@ export class DeviceHost extends Context.Service<
     readonly stopAgent: Effect.Effect<void>;
     /** Stops helpers. Devices themselves keep running; the user owns those. */
     readonly stop: Effect.Effect<void>;
+    readonly managed?: ManagedDevices;
   }
 >()("t3/device/DeviceHost") {}

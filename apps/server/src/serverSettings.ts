@@ -32,6 +32,7 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
+  SECRET_REDACTED,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -156,15 +157,12 @@ function providerEnvironmentSecretName(input: {
   return `provider-env-${Buffer.from(input.instanceId, "utf8").toString("base64url")}-${Buffer.from(input.name, "utf8").toString("base64url")}`;
 }
 
-/**
- * On disk a hub key or Bitbucket token is replaced by this marker and the
- * real value lives in the secret store, mirroring provider environment
- * secrets. A client that sends the marker back means "keep what you have".
- */
-const SECRET_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
-
 function usageLimitSourceSecretName(sourceId: string): string {
   return `usage-limit-source-${Buffer.from(sourceId, "utf8").toString("base64url")}`;
+}
+
+function easDeviceHostSecretName(hostId: string): string {
+  return `eas-device-host-${Buffer.from(hostId, "utf8").toString("base64url")}`;
 }
 
 const redactSecret = (value: string) => (value.length > 0 ? SECRET_REDACTED : "");
@@ -248,7 +246,11 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
   const sourceControlHosts = mapSlotValues(settings.sourceControlHosts, (_slot, value) =>
     redactSecret(value),
   );
-  return { ...settings, providerInstances, usageLimitSources, sourceControlHosts };
+  const easDeviceHosts = settings.easDeviceHosts.map((host) => ({
+    ...host,
+    accessToken: redactSecret(host.accessToken),
+  }));
+  return { ...settings, providerInstances, usageLimitSources, sourceControlHosts, easDeviceHosts };
 }
 
 export function applyProviderInstanceMutation(
@@ -1042,6 +1044,24 @@ const make = Effect.gen(function* () {
           managementKey: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
         };
       }
+      const easDeviceHosts: Array<ServerSettings["easDeviceHosts"][number]> = [];
+      for (const host of settings.easDeviceHosts) {
+        if (host.accessToken !== SECRET_REDACTED) {
+          easDeviceHosts.push(host);
+          continue;
+        }
+        const secret = yield* secretStore
+          .get(easDeviceHostSecretName(host.id))
+          .pipe(
+            Effect.mapError(
+              (cause) => new ServerSettingsError({ settingsPath, operation: "read-secret", cause }),
+            ),
+          );
+        easDeviceHosts.push({
+          ...host,
+          accessToken: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
+        });
+      }
       const storedSecrets = new Map<string, string>();
       for (const slot of sourceControlHostSecretSlots(settings.sourceControlHosts)) {
         if (slot.value !== SECRET_REDACTED) continue;
@@ -1061,6 +1081,7 @@ const make = Effect.gen(function* () {
         ...settings,
         providerInstances: providerInstances as ServerSettings["providerInstances"],
         usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+        easDeviceHosts,
         sourceControlHosts: mapSlotValues(settings.sourceControlHosts, (slot, value) =>
           value === SECRET_REDACTED
             ? (storedSecrets.get(sourceControlHostSecretName(slot)) ?? "")
@@ -1207,6 +1228,25 @@ const make = Effect.gen(function* () {
         });
       }
 
+      const easDeviceHosts = next.easDeviceHosts.map((host) => {
+        const secretName = easDeviceHostSecretName(host.id);
+        if (host.accessToken === SECRET_REDACTED) return host;
+        if (host.accessToken.length === 0) {
+          changes.push({ kind: "remove", secretName, operation: "remove-secret" });
+          return host;
+        }
+        changes.push({ kind: "write", secretName, value: textEncoder.encode(host.accessToken) });
+        return { ...host, accessToken: SECRET_REDACTED };
+      });
+      for (const host of current.easDeviceHosts) {
+        if (next.easDeviceHosts.some((candidate) => candidate.id === host.id)) continue;
+        changes.push({
+          kind: "remove",
+          secretName: easDeviceHostSecretName(host.id),
+          operation: "remove-stale-secret",
+        });
+      }
+
       // Hand-edited plaintext not yet in the store, so the redaction marker can move it there.
       const inlineSecrets = new Map(
         sourceControlHostSecretSlots(current.sourceControlHosts).flatMap((slot) =>
@@ -1244,6 +1284,7 @@ const make = Effect.gen(function* () {
           ...next,
           providerInstances: providerInstances as ServerSettings["providerInstances"],
           usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+          easDeviceHosts,
           sourceControlHosts,
         },
         changes,

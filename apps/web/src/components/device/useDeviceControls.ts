@@ -17,14 +17,21 @@ type ActionBody = DeviceActionInput extends infer A
     : never
   : never;
 
+type ActionType = DeviceActionInput["type"];
+
 /** One confirmed settings snapshot and serialized actions for the rail and drawer. Mount keyed by device. */
 export function useDeviceControls(options: {
   environmentId: EnvironmentId;
   device: DeviceSummary;
   access: DeviceHubAccess | null;
   visible: boolean;
+  /**
+   * EAS cloud devices: their preview server serves only the stream, so there is no
+   * foreground app, accessibility tree, or event log. Known from the host up front.
+   */
+  cloud?: boolean;
 }) {
-  const { environmentId, device, access, visible } = options;
+  const { environmentId, device, access, visible, cloud = false } = options;
   const readDetail = useAtomCommand(deviceEnvironment.detail, { reportFailure: false });
   const runAction = useAtomCommand(deviceEnvironment.action, { reportFailure: false });
   const [detail, setDetail] = useState<DeviceDetail | null>(null);
@@ -63,7 +70,7 @@ export function useDeviceControls(options: {
   }, [environmentId, readDetail, target, visible]);
 
   useEffect(() => {
-    if (!access || !visible) return;
+    if (!access || !visible || cloud) return;
     let active = true;
     const unsubscribe = subscribeDeviceForeground(
       { access, platform: device.platform, deviceId: device.id },
@@ -76,7 +83,7 @@ export function useDeviceControls(options: {
       unsubscribe();
       setForeground(undefined);
     };
-  }, [access, device.id, device.platform, visible]);
+  }, [access, cloud, device.id, device.platform, visible]);
 
   const available = detail !== null && visible;
   const act = async (body: ActionBody) => {
@@ -108,7 +115,8 @@ export function useDeviceControls(options: {
             }
           });
         }
-        if (result._tag === "Success") setDetail(result.value);
+        if (result._tag === "Success")
+          setDetail((previous) => withApplied(previous, result.value, body));
         else setError(formatEnvironmentQueryError(result.cause));
       })
       .finally(() => {
@@ -117,14 +125,39 @@ export function useDeviceControls(options: {
       });
   };
 
+  const supportedActions = detail?.supportedActions;
   return {
     detail,
+    cloud,
+    /** Whether the device takes this action; devices without a list take every platform action. */
+    supports: (type: ActionType) => supportedActions?.includes(type) ?? true,
+    /**
+     * Whether a setting control is usable. Without an action list a missing read-back value
+     * means unsupported; a listed action works without one.
+     */
+    settable: (type: ActionType, current: unknown) =>
+      supportedActions ? supportedActions.includes(type) : current !== undefined,
     pending,
     error,
     act,
     disabled: pending || !detail || !visible,
     foregroundApp: foreground === undefined ? (detail?.foregroundApp ?? null) : foreground,
   };
+}
+
+/**
+ * Devices without read-back (an action list and empty settings) confirm nothing, so keep the
+ * values this panel already applied rather than showing them as unset again.
+ */
+function withApplied(previous: DeviceDetail | null, next: DeviceDetail, body: ActionBody) {
+  if (!next.supportedActions) return next;
+  const applied =
+    body.type === "setAppearance"
+      ? { appearance: body.value }
+      : body.type === "setTextSize"
+        ? { textSize: body.value }
+        : {};
+  return { ...next, settings: { ...previous?.settings, ...applied, ...next.settings } };
 }
 
 export type DeviceControls = ReturnType<typeof useDeviceControls>;

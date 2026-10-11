@@ -23,6 +23,17 @@ proxy, and the MCP tools only see a hub origin and an agent-device endpoint.
 SSH hosts forward both endpoints to server loopback. Every proxied request
 also carries the host id; device ids alone are not unique across hosts.
 
+[EAS Simulator hosts](../../apps/server/src/device/EasDeviceHost.ts) are the
+exception: a cloud device exists only while a billed session runs, so the host
+implements `managed` (list, boot, shutdown) instead of answering hub discovery,
+and `hub.upstream` maps hub routes onto each session's own token-gated preview
+server. Android's preview is a full expo-device-hub; iOS's is a bare serve-sim
+whose video is locked to WebRTC, which is why the proxy forwards WebRTC
+signaling. Each session brings its own agent-device daemon, so agent config for
+these hosts is keyed by platform and rewritten when the device boots. Closing
+the last session on a cloud device stops it; nothing else bounds the bill
+except Expo's own idle and duration caps, which T3 always sets.
+
 ## The hub is never exposed
 
 serve-sim has a shell-exec route whose token is readable from its own
@@ -77,8 +88,8 @@ is a few lines that point at the tools and prefer them over raw `simctl` and
 The hub vendors two streaming servers with different wire formats. iOS video is
 an HTTP body of AVCC envelopes decoded with WebCodecs, with input on a separate
 binary WebSocket; Android multiplexes SEMU-framed H.264 and JSON gestures over
-one WebSocket. [`deviceStream.ts`](../../apps/web/src/components/device/deviceStream.ts)
-speaks both so one panel covers both platforms.
+one WebSocket. [`stream.ts`](../../packages/client-runtime/src/device/stream.ts)
+speaks both so one panel covers both platforms, plus WebRTC for EAS iOS.
 
 Simulators encode H.264 High 5.1. Hardware decoders on some machines and all
 headless browsers reject that profile, and WebCodecs is secure-context only, so

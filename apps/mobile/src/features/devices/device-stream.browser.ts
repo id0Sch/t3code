@@ -132,7 +132,7 @@ export function start(configuration: DeviceStreamConfiguration) {
     if (activeClient === client) post({ type: "unauthorized" });
   };
   const client = createDeviceStreamClient(
-    { ...configuration, preferMjpeg: platform === "ios" },
+    { ...configuration, preferMjpeg: platform === "ios" && !configuration.transport },
     canvas,
     {
       onStatus: reportStatus,

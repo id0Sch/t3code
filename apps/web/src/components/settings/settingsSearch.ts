@@ -705,6 +705,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["ssh remote simulator emulator ios android mac mini identity key connection"],
   },
   {
+    id: "eas-device-hosts",
+    title: "EAS Simulator",
+    to: "/settings/integrations",
+    searchTerms: ["expo eas cloud simulator emulator ios android project token device hosts"],
+  },
+  {
     id: "agent-device-access",
     title: "Agent device access",
     to: "/settings/integrations",

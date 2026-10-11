@@ -1,4 +1,4 @@
-import type { DeviceSummary, EnvironmentId } from "@t3tools/contracts";
+import type { DeviceHostSummary, DeviceSummary, EnvironmentId } from "@t3tools/contracts";
 import { useEffect, useRef, useState } from "react";
 import {
   captureDeviceScreenshot,
@@ -9,11 +9,13 @@ import { DeviceControlsRail } from "./DeviceControlsRail";
 import { DeviceStreamView, type DeviceStreamHandle } from "./DeviceStreamView";
 import { DeviceToolsPanel } from "./DeviceToolsPanel";
 import { useDeviceControls } from "./useDeviceControls";
+import { ensureLocalApi } from "~/localApi";
 
 /** Keyed by environment and device; the screen, quick controls and drawer share the same session. */
 export function DeviceWorkspace(props: {
   environmentId: EnvironmentId;
   device: DeviceSummary;
+  hostKind: DeviceHostSummary["kind"] | undefined;
   hostLabel: string;
   hostDiagnostics: string | undefined;
   visible: boolean;
@@ -29,7 +31,7 @@ export function DeviceWorkspace(props: {
   const captureRef = useRef<AbortController | null>(null);
   const downloadRef = useRef<string | null>(null);
   const access = useDeviceHubAccess(props.environmentId, props.device.hostId);
-  const controls = useDeviceControls({ ...props, access });
+  const controls = useDeviceControls({ ...props, access, cloud: props.hostKind === "eas" });
   useEffect(() => {
     if (!access || !props.visible) captureRef.current?.abort();
     return () => {
@@ -92,6 +94,7 @@ export function DeviceWorkspace(props: {
             deviceDescription={`${props.hostLabel} · ${props.device.version}`}
             deviceId={props.device.id}
             hostId={props.device.hostId}
+            transport={props.device.transport}
             visible={props.visible}
             axOverlay={axOverlay}
             allowPhoneView
@@ -102,6 +105,12 @@ export function DeviceWorkspace(props: {
                 handle={handle}
                 view={view}
                 controls={controls}
+                cloudSession={props.hostKind === "eas"}
+                externalUrl={props.device.externalUrl}
+                onOpenExternal={() => {
+                  if (props.device.externalUrl)
+                    void ensureLocalApi().shell.openExternal(props.device.externalUrl);
+                }}
                 screenshotPending={screenshotPending}
                 onScreenshot={() => void saveScreenshot()}
                 toolsOpen={toolsOpen}

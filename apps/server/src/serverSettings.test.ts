@@ -1693,6 +1693,32 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.include(persisted, '"valueRedacted": true');
     }).pipe(Effect.provide(layerServerSettings())),
   );
+  it.effect("keeps EAS access tokens in the secret store and out of client settings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const host = { id: "eas", label: "EAS", projectId: "project" };
+
+      yield* serverSettings.updateSettings({
+        easDeviceHosts: [{ ...host, accessToken: "expo-secret" }],
+      });
+      const saved = yield* serverSettings.getSettings;
+      const redacted = ServerSettingsModule.redactServerSettingsForClient(saved).easDeviceHosts;
+      assert.equal(saved.easDeviceHosts[0]?.accessToken, "expo-secret");
+      assert.notInclude(yield* fileSystem.readFileString(serverConfig.settingsPath), "expo-secret");
+
+      // A client resends the marker it was given; that keeps the stored token.
+      yield* serverSettings.updateSettings({ easDeviceHosts: redacted });
+      assert.equal(
+        (yield* serverSettings.getSettings).easDeviceHosts[0]?.accessToken,
+        "expo-secret",
+      );
+
+      yield* serverSettings.updateSettings({ easDeviceHosts: [{ ...host, accessToken: "" }] });
+      assert.equal((yield* serverSettings.getSettings).easDeviceHosts[0]?.accessToken, "");
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
   it.effect("rolls back provider secret changes when the settings file commit fails", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

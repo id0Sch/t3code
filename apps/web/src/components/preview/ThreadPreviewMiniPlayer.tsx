@@ -302,6 +302,7 @@ function DeviceMiniPlayer({
             platform={source.platform}
             deviceId={source.deviceId}
             hostId={source.hostId}
+            transport={device?.transport}
             deviceName={device?.name ?? source.name}
             deviceDescription={`${hostLabel} · ${device?.version ?? source.platform}`}
             visible

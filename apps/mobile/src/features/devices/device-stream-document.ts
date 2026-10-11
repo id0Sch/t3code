@@ -5,6 +5,8 @@ export interface DeviceStreamConfiguration {
   readonly access: DeviceHubAccess;
   readonly platform: DevicePlatform;
   readonly deviceId: string;
+  /** EAS cloud simulators publish iOS video over WebRTC only. */
+  readonly transport?: "webrtc";
   readonly colors: {
     readonly background: string;
     readonly foreground: string;

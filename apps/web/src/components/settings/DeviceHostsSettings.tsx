@@ -4,7 +4,12 @@ import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { AppleIcon, AndroidIcon } from "../Icons";
 import { Spinner } from "../ui/spinner";
-import type { EnvironmentId, SshDeviceHostConfig } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ServerSettings,
+  ServerSettingsPatch,
+  SshDeviceHostConfig,
+} from "@t3tools/contracts";
 import { randomUUID } from "../../lib/utils";
 import { useState } from "react";
 import { deviceEnvironment, useDeviceState } from "../../state/device";
@@ -26,7 +31,7 @@ export function DeviceHostsSettings(props: { environmentId: EnvironmentId | null
   const { scope, environments, connectedEnvironments } = useSettingsScope();
   const canConfigure = useEnvironmentScope(props.environmentId, AuthSettingsWriteScope);
   const projectScope = scope.kind === "project" || scope.kind === "checkout";
-  const update = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
+  const saveOnEnvironments = useSaveDeviceHostsOnEnvironments();
   const [editing, setEditing] = useState<SshDeviceHostConfig | null>(null);
   const [originalHost, setOriginalHost] = useState<SshDeviceHostConfig | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,42 +45,10 @@ export function DeviceHostsSettings(props: { environmentId: EnvironmentId | null
     if (!props.environmentId || projectScope) return;
     setBusy(true);
     try {
-      const results = await Promise.allSettled(
-        environments.map(async (environment) => {
-          if (environment.connection.phase !== "connected" || !environment.serverConfig) {
-            throw new Error("Environment disconnected");
-          }
-          if (!readEnvironmentScope(environment.environmentId, AuthSettingsWriteScope)) {
-            throw new Error("This connection cannot change device settings.");
-          }
-          return update({
-            environmentId: environment.environmentId,
-            input: {
-              patch: {
-                deviceHosts: updateDeviceHosts(
-                  environment.serverConfig.settings.deviceHosts,
-                  host,
-                  remove,
-                  original,
-                ),
-              },
-            },
-          });
-        }),
-      );
-      const failed = environments.filter((_, index) => {
-        const result = results[index];
-        return result?.status !== "fulfilled" || result.value._tag === "Failure";
-      });
-      if (failed.length === 0) {
-        setEditing(null);
-      } else {
-        toastManager.add({
-          type: "error",
-          title: "Device hosts not saved on all environments",
-          description: `Could not update ${failed.map((environment) => environment.label).join(", ")}.`,
-        });
-      }
+      const saved = await saveOnEnvironments((settings) => ({
+        deviceHosts: updateDeviceHosts(settings.deviceHosts, host, remove, original),
+      }));
+      if (saved) setEditing(null);
     } finally {
       setBusy(false);
     }
@@ -164,6 +137,42 @@ export function DeviceHostsSettings(props: { environmentId: EnvironmentId | null
       </div>
     </SettingsRow>
   );
+}
+
+/**
+ * Device hosts are shared across the selected environments: each one patches its own
+ * host list. Resolves false, after a toast, when any environment did not save.
+ */
+export function useSaveDeviceHostsOnEnvironments() {
+  const { environments } = useSettingsScope();
+  const update = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
+  return async (patchFor: (settings: ServerSettings) => ServerSettingsPatch) => {
+    const results = await Promise.allSettled(
+      environments.map(async (environment) => {
+        if (environment.connection.phase !== "connected" || !environment.serverConfig) {
+          throw new Error("Environment disconnected");
+        }
+        if (!readEnvironmentScope(environment.environmentId, AuthSettingsWriteScope)) {
+          throw new Error("This connection cannot change device settings.");
+        }
+        return update({
+          environmentId: environment.environmentId,
+          input: { patch: patchFor(environment.serverConfig.settings) },
+        });
+      }),
+    );
+    const failed = environments.filter((_, index) => {
+      const result = results[index];
+      return result?.status !== "fulfilled" || result.value._tag === "Failure";
+    });
+    if (failed.length === 0) return true;
+    toastManager.add({
+      type: "error",
+      title: "Device hosts not saved on all environments",
+      description: `Could not update ${failed.map((environment) => environment.label).join(", ")}.`,
+    });
+    return false;
+  };
 }
 
 function DeviceHostList({
